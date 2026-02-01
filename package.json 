@@ -1,0 +1,16 @@
+{
+  "name": "ruqya-sharia",
+  "version": "1.0.0",
+  "description": "تطبيق الرقية الشرعية PWA",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve .",
+    "dev": "serve ."
+  },
+  "keywords": ["ruqya", "islamic", "pwa", "audio"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}
