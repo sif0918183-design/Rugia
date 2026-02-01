@@ -11,8 +11,8 @@
     <link rel="manifest" href="manifest.json">
     
     <!-- أيقونات PWA -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>">
+    <link rel="icon" href="icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="icon-192.png">
     
     <!-- الخطوط -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -147,6 +147,7 @@
             background-color: #e0e0e0;
             border-radius: 4px;
             overflow: hidden;
+            cursor: pointer;
         }
         
         .progress {
@@ -500,7 +501,7 @@
                     <span id="current-time">00:00</span>
                     <span id="total-time">00:00</span>
                 </div>
-                <div class="progress-bar">
+                <div class="progress-bar" id="progress-bar">
                     <div id="progress" class="progress"></div>
                 </div>
             </div>
@@ -569,11 +570,11 @@
         <button class="install-btn" id="install-btn">تثبيت التطبيق</button>
     </div>
     
-    <!-- مشغل الصوت المخفي -->
-    <audio id="audio-player" preload="metadata"></audio>
+    <!-- مشغل الصوت المخفي - إضافة playsinline و controlslist لمنع التحميل -->
+    <audio id="audio-player" preload="metadata" playsinline controlslist="nodownload"></audio>
     
     <script>
-        // بيانات المقاطع الصوتية (يمكن تعديلها حسب الملفات المتوفرة)
+        // بيانات المقاطع الصوتية
         const tracks = [
             {
                 id: 1,
@@ -638,6 +639,7 @@
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progress-bar');
         const currentTimeEl = document.getElementById('current-time');
         const totalTimeEl = document.getElementById('total-time');
         const repeatBtn = document.getElementById('repeat-btn');
@@ -654,12 +656,13 @@
             loadTrack(state.currentTrackIndex);
             setupEventListeners();
             setupAudioPlayer();
+            setupMediaSession();
             checkAudioFiles();
             registerServiceWorker();
             
             // عرض رسالة التثبيت بعد تأخير
             setTimeout(() => {
-                if (state.deferredPrompt === null) {
+                if (state.deferredPrompt === null && !window.matchMedia('(display-mode: standalone)').matches) {
                     installPrompt.classList.add('show');
                 }
             }, 5000);
@@ -693,7 +696,6 @@
                     } else {
                         togglePlayPause();
                     }
-                    
                     updateActiveTrack();
                 });
                 
@@ -716,13 +718,40 @@
             audioPlayer.src = audioUrl;
             audioPlayer.load();
             
-            // تحديث حالة التشغيل
+            // تحديث Media Session
+            updateMediaSession(track);
+
+            // تحديث حالة التشغيل إذا كان المشغل يعمل بالفعل
             if (state.isPlaying) {
                 playTrack();
             }
             
             // تحديث التتبع النشط
             updateActiveTrack();
+        }
+
+        // Media Session API
+        function updateMediaSession(track) {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title,
+                    artist: 'الرقية الشرعية',
+                    album: 'حصن المسلم',
+                    artwork: [
+                        { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+                        { src: 'icon-512.png', sizes: '512x512', type: 'image/png' }
+                    ]
+                });
+            }
+        }
+
+        function setupMediaSession() {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.setActionHandler('play', () => playTrack());
+                navigator.mediaSession.setActionHandler('pause', () => pauseTrack());
+                navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
+                navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
+            }
         }
 
         // تشغيل المقطع
@@ -734,8 +763,11 @@
                     state.isPlaying = true;
                     playIcon.className = 'fas fa-pause';
                     playPauseBtn.setAttribute('aria-label', 'إيقاف');
+                    if ('mediaSession' in navigator) {
+                        navigator.mediaSession.playbackState = 'playing';
+                    }
                 }).catch(error => {
-                    console.log("فشل التشغيل التلقائي:", error);
+                    console.error("فشل التشغيل:", error);
                     state.isPlaying = false;
                     playIcon.className = 'fas fa-play';
                     playPauseBtn.setAttribute('aria-label', 'تشغيل');
@@ -749,6 +781,9 @@
             state.isPlaying = false;
             playIcon.className = 'fas fa-play';
             playPauseBtn.setAttribute('aria-label', 'تشغيل');
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'paused';
+            }
         }
 
         // تبديل التشغيل/الإيقاف
@@ -775,10 +810,7 @@
             }
             
             loadTrack(state.currentTrackIndex);
-            
-            if (state.isPlaying) {
-                playTrack();
-            }
+            playTrack();
         }
 
         // المقطع السابق
@@ -796,21 +828,14 @@
             }
             
             loadTrack(state.currentTrackIndex);
-            
-            if (state.isPlaying) {
-                playTrack();
-            }
+            playTrack();
         }
 
         // تحديث التتبع النشط في القائمة
         function updateActiveTrack() {
             const trackItems = document.querySelectorAll('.track-item');
             trackItems.forEach((item, index) => {
-                if (index === state.currentTrackIndex) {
-                    item.classList.add('active');
-                } else {
-                    item.classList.remove('active');
-                }
+                item.classList.toggle('active', index === state.currentTrackIndex);
             });
         }
 
@@ -821,13 +846,13 @@
             const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
             progress.style.width = `${percent}%`;
             
-            // تحديث الوقت
             currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
             totalTimeEl.textContent = formatTime(audioPlayer.duration);
         }
 
         // تنسيق الوقت
         function formatTime(seconds) {
+            if (isNaN(seconds)) return "00:00";
             const mins = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -835,16 +860,16 @@
 
         // ضبط مؤشر التقدم عند النقر
         function setProgress(e) {
-            const width = this.clientWidth;
+            const width = progressBar.clientWidth;
             const clickX = e.offsetX;
             const duration = audioPlayer.duration;
-            
-            audioPlayer.currentTime = (clickX / width) * duration;
+            if (duration) {
+                audioPlayer.currentTime = (clickX / width) * duration;
+            }
         }
 
         // التحقق من وجود الملفات الصوتية
         function checkAudioFiles() {
-            // محاولة تحميل أول مقطع للتحقق
             const testAudio = new Audio();
             const testTrack = tracks[0];
             const testUrl = `${state.audioFilesBasePath}${testTrack.filename}`;
@@ -863,16 +888,12 @@
 
         // إعداد مستمعي الأحداث
         function setupEventListeners() {
-            // عناصر التحكم بالمشغل
             playPauseBtn.addEventListener('click', togglePlayPause);
             prevBtn.addEventListener('click', prevTrack);
             nextBtn.addEventListener('click', nextTrack);
             
-            // شريط التقدم
-            const progressBar = document.querySelector('.progress-bar');
             progressBar.addEventListener('click', setProgress);
             
-            // عناصر التحكم الإضافية
             repeatBtn.addEventListener('click', () => {
                 state.isRepeat = !state.isRepeat;
                 repeatBtn.classList.toggle('active', state.isRepeat);
@@ -883,16 +904,10 @@
                 autoNextBtn.classList.toggle('active', state.isAutoNext);
             });
             
-            // تثبيت PWA
             installBtn.addEventListener('click', async () => {
                 if (state.deferredPrompt) {
                     state.deferredPrompt.prompt();
                     const { outcome } = await state.deferredPrompt.userChoice;
-                    
-                    if (outcome === 'accepted') {
-                        console.log('تم قبول تثبيت التطبيق');
-                    }
-                    
                     state.deferredPrompt = null;
                     installPrompt.classList.remove('show');
                 }
@@ -902,7 +917,6 @@
                 installPrompt.classList.remove('show');
             });
             
-            // حدث قبل التثبيت
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
                 state.deferredPrompt = e;
@@ -912,10 +926,8 @@
 
         // إعداد مشغل الصوت
         function setupAudioPlayer() {
-            // تحديث التقدم
             audioPlayer.addEventListener('timeupdate', updateProgress);
             
-            // عند انتهاء المقطع
             audioPlayer.addEventListener('ended', () => {
                 if (state.isAutoNext) {
                     nextTrack();
@@ -924,141 +936,37 @@
                 }
             });
             
-            // عند تحميل بيانات المقطع
             audioPlayer.addEventListener('loadedmetadata', () => {
                 totalTimeEl.textContent = formatTime(audioPlayer.duration);
             });
             
-            // عند بدء التشغيل
             audioPlayer.addEventListener('play', () => {
                 state.isPlaying = true;
                 playIcon.className = 'fas fa-pause';
             });
             
-            // عند الإيقاف
             audioPlayer.addEventListener('pause', () => {
                 state.isPlaying = false;
                 playIcon.className = 'fas fa-play';
             });
             
-            // عند حدوث خطأ
             audioPlayer.addEventListener('error', () => {
                 console.error('خطأ في تحميل المقطع الصوتي');
                 audioError.style.display = 'block';
             });
         }
 
-        // تسجيل Service Worker لـ PWA
+        // تسجيل Service Worker
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('service-worker.js')
-                    .then(registration => {
-                        console.log('Service Worker مسجل بنجاح:', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('فشل تسجيل Service Worker:', error);
-                    });
+                    .then(reg => console.log('Service Worker registered:', reg.scope))
+                    .catch(err => console.error('Service Worker registration failed:', err));
             }
         }
 
-        // تشغيل التطبيق عند تحميل الصفحة
+        // تشغيل التطبيق
         document.addEventListener('DOMContentLoaded', initApp);
-        
-        // إضافة Service Worker مباشرة في الكود
-        const serviceWorkerCode = `
-            // service-worker.js
-            const CACHE_NAME = 'ruqya-app-v1';
-            const urlsToCache = [
-                './',
-                './index.html',
-                './manifest.json'
-            ];
-
-            self.addEventListener('install', event => {
-                event.waitUntil(
-                    caches.open(CACHE_NAME)
-                        .then(cache => {
-                            return cache.addAll(urlsToCache);
-                        })
-                );
-            });
-
-            self.addEventListener('fetch', event => {
-                event.respondWith(
-                    caches.match(event.request)
-                        .then(response => {
-                            if (response) {
-                                return response;
-                            }
-                            return fetch(event.request);
-                        })
-                );
-            });
-
-            self.addEventListener('activate', event => {
-                event.waitUntil(
-                    caches.keys().then(cacheNames => {
-                        return Promise.all(
-                            cacheNames.map(cacheName => {
-                                if (cacheName !== CACHE_NAME) {
-                                    return caches.delete(cacheName);
-                                }
-                            })
-                        );
-                    })
-                );
-            });
-        `;
-        
-        // إنشاء ملف manifest.json افتراضي
-        const manifest = {
-            "name": "الرقية الشرعية",
-            "short_name": "الرقية",
-            "description": "تطبيق الرقية الشرعية وفق الكتاب والسنة",
-            "start_url": "./",
-            "display": "standalone",
-            "background_color": "#0a5c36",
-            "theme_color": "#0a5c36",
-            "icons": [
-                {
-                    "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>",
-                    "sizes": "192x192",
-                    "type": "image/svg+xml"
-                },
-                {
-                    "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>",
-                    "sizes": "512x512",
-                    "type": "image/svg+xml"
-                }
-            ]
-        };
-        
-        // إنشاء عناصر Service Worker و Manifest ديناميكياً إذا لزم الأمر
-        document.addEventListener('DOMContentLoaded', () => {
-            // إنشاء Manifest ديناميكياً
-            const manifestLink = document.querySelector('link[rel="manifest"]');
-            if (manifestLink) {
-                const manifestBlob = new Blob([JSON.stringify(manifest, null, 2)], {type: 'application/json'});
-                const manifestURL = URL.createObjectURL(manifestBlob);
-                manifestLink.href = manifestURL;
-            }
-            
-            // تسجيل Service Worker إذا كان الملف غير موجود
-            if ('serviceWorker' in navigator) {
-                try {
-                    // محاولة تسجيل Service Worker من ملف
-                    navigator.serviceWorker.register('service-worker.js')
-                        .catch(() => {
-                            // إذا فشل، قم بإنشاء Service Worker ديناميكياً
-                            const blob = new Blob([serviceWorkerCode], {type: 'application/javascript'});
-                            const swURL = URL.createObjectURL(blob);
-                            navigator.serviceWorker.register(swURL);
-                        });
-                } catch (error) {
-                    console.log("خطأ في تسجيل Service Worker:", error);
-                }
-            }
-        });
     </script>
 </body>
 </html>
